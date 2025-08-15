@@ -15,7 +15,8 @@ dependencies = [
     "dash",
     "yfinance",
     "scipy",
-    "ipython"
+    "ipython",
+    "click"
 ]
 
 [build-system]

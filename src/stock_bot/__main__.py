@@ -52,7 +52,7 @@ def run_strategy_core(
         ema_mom_period=int(ema_mom_period)
     )
     if notebook:
-        import plotly.graph_objs as go
+        import matplotlib.pyplot as plt
         x_vals = list(range(len(sb.data)))
         equity_curve = []
         entry_price = None
@@ -73,14 +73,15 @@ def run_strategy_core(
                 equity_curve.append(cumulative_return + current_return)
             else:
                 equity_curve.append(cumulative_return)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=x_vals, y=equity_curve, mode='lines', name='Equity Curve'))
-        fig.update_layout(
-            title='Equity Change Over Time',
-            xaxis_title='Index',
-            yaxis_title='Cumulative % Gain/Loss'
-        )
-        return fig
+        plt.figure(figsize=(12, 5))
+        plt.plot(x_vals, equity_curve, label='Equity Curve', color='blue')
+        plt.title('Equity Change Over Time')
+        plt.xlabel('Index')
+        plt.ylabel('Cumulative % Gain/Loss')
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+        return None
     else:
         eq = sb.run(plot=True, slider=True, final_equity_only=final_equity_only)
         historical_data.to_csv("cli_historical_data.csv")

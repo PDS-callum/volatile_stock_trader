@@ -65,8 +65,24 @@ class StrategyBacktester:
             macd_signal_now = self.data['MACD_signal'].iloc[idx]
             rsi_now = self.data['RSI'].iloc[idx]
             roc_now = self.data['ROC'].iloc[idx]
+            # Enhanced polynomial trend analysis: block buys if macro trend is strongly down
+            trend_window = 20  # Number of points to check for trend
+            trending_down = False
+            if idx >= trend_window:
+                recent_closes = self.data['Close'].iloc[idx-trend_window:idx]
+                x = np.arange(trend_window)
+                coeffs = np.polyfit(x, recent_closes, 2)
+                # Calculate fitted values
+                fitted = np.polyval(coeffs, x)
+                # Assess macro trend: compare mean of first half vs second half
+                mean_first = np.mean(fitted[:trend_window//2])
+                mean_second = np.mean(fitted[trend_window//2:])
+                slope_end = 2*coeffs[0]*x[-1] + coeffs[1]
+                # Block buys if both the macro trend and slope are negative and the drop is significant
+                if (mean_second < mean_first) and (slope_end < -0.01 * mean_first):
+                    trending_down = True
             # More aggressive for volatility
-            if (macd_prev < macd_signal_prev and macd_now > macd_signal_now and rsi_now < 40 and roc_now > 0):
+            if (macd_prev < macd_signal_prev and macd_now > macd_signal_now and rsi_now < 40 and roc_now > 0 and not trending_down):
                 return "BUY"
             if macd_prev > macd_signal_prev and macd_now < macd_signal_now and rsi_now > 60:
                 return "SELL"
