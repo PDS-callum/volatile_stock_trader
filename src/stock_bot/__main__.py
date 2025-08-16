@@ -4,6 +4,8 @@ import json
 import time
 from scipy.optimize import brute
 from .strategy_backtester import StrategyBacktester
+from .strategy import DefaultStrategy
+from .strategy_tester import StrategyTester
 import logging
 from typing import Any, Tuple
 
@@ -13,16 +15,80 @@ logging.basicConfig(level=logging.INFO)
 def cli():
     """Main CLI group."""
     pass
-import click
-import yfinance as yf
-from scipy.optimize import brute
-from .strategy_backtester import StrategyBacktester
-import logging
-from typing import Any, Tuple
+def run_live_strategy_core(
+    symbol,
+    macd_fast,
+    macd_slow,
+    macd_signal,
+    rsi_period,
+    roc_period,
+    ema_mom_period,
+    interval,
+    min_points=40,
+    plot=True
+):
+    """Run the live strategy tester with the given parameters."""
+    strategy_params = dict(
+        macd_fast=int(macd_fast),
+        macd_slow=int(macd_slow),
+        macd_signal=int(macd_signal),
+        rsi_period=int(rsi_period),
+        roc_period=int(roc_period),
+        ema_mom_period=int(ema_mom_period)
+    )
+    tester = StrategyTester(
+        symbol,
+        strategy_cls=DefaultStrategy,
+        interval=interval,
+        min_points=min_points,
+        strategy_params=strategy_params
+    )
+    tester.run()
+    print("Live dashboard running at http://127.0.0.1:8050/. Press Ctrl+C to exit.")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Exiting live dashboard...")
+    return None
+@cli.command()
+@click.argument("symbol")
+@click.option("--macd-fast", default=12, help="MACD fast period")
+@click.option("--macd-slow", default=26, help="MACD slow period")
+@click.option("--macd-signal", default=9, help="MACD signal period")
+@click.option("--rsi-period", default=14, help="RSI period")
+@click.option("--roc-period", default=5, help="ROC period")
+@click.option("--ema-mom-period", default=20, help="EMA momentum period")
+@click.option("--interval", default="15m", help="Data interval")
+@click.option("--min-points", default=40, help="Minimum data points before strategy runs")
+@click.option("--plot/--no-plot", default=True, help="Show plots")
+def run_live_strategy(
+    symbol,
+    macd_fast,
+    macd_slow,
+    macd_signal,
+    rsi_period,
+    roc_period,
+    ema_mom_period,
+    interval,
+    min_points,
+    plot
+):
+    """CLI wrapper for run_live_strategy_core."""
+    return run_live_strategy_core(
+        symbol,
+        macd_fast,
+        macd_slow,
+        macd_signal,
+        rsi_period,
+        roc_period,
+        ema_mom_period,
+        interval,
+        min_points,
+        plot
+    )
 
-logging.basicConfig(level=logging.INFO)
-
-def run_strategy_core(
+def run_back_strategy_core(
     symbol,
     macd_fast,
     macd_slow,
@@ -42,7 +108,7 @@ def run_strategy_core(
         period=period,
         interval=interval
     )
-    sb = StrategyBacktester(
+    strategy = DefaultStrategy(
         historical_data,
         macd_fast=int(macd_fast),
         macd_slow=int(macd_slow),
@@ -51,6 +117,7 @@ def run_strategy_core(
         roc_period=int(roc_period),
         ema_mom_period=int(ema_mom_period)
     )
+    sb = StrategyBacktester(strategy)
     if notebook:
         import matplotlib.pyplot as plt
         x_vals = list(range(len(sb.data)))
@@ -58,17 +125,17 @@ def run_strategy_core(
         entry_price = None
         cumulative_return = 0.0
         for i in range(len(sb.data)):
-            signal = sb.check_signals(i)
-            if signal == "BUY" and not sb.bought:
+            signal = strategy.check_signals(i)
+            if signal == "BUY" and not strategy.bought:
                 entry_price = sb.data['Close'].iloc[i]
-                sb.bought = True
-            elif signal == "SELL" and sb.bought and entry_price is not None:
+                strategy.bought = True
+            elif signal == "SELL" and strategy.bought and entry_price is not None:
                 trade_return = (sb.data['Close'].iloc[i] - entry_price) / entry_price * 100
                 cumulative_return += trade_return
                 entry_price = None
-                sb.bought = False
+                strategy.bought = False
             # Update running equity curve
-            if sb.bought and entry_price is not None:
+            if strategy.bought and entry_price is not None:
                 current_return = (sb.data['Close'].iloc[i] - entry_price) / entry_price * 100
                 equity_curve.append(cumulative_return + current_return)
             else:
@@ -109,7 +176,7 @@ def run_strategy_core(
 @click.option("--interval", default="15m", help="Data interval")
 @click.option("--final-equity-only", is_flag=True, help="Return only final equity")
 @click.option("--plot/--no-plot", default=True, help="Show plots")
-def run_strategy(
+def run_back_strategy(
     symbol,
     macd_fast,
     macd_slow,
@@ -122,8 +189,8 @@ def run_strategy(
     final_equity_only,
     plot
 ):
-    """CLI wrapper for run_strategy_core."""
-    return run_strategy_core(
+    """CLI wrapper for run_back_strategy_core."""
+    return run_back_strategy_core(
         symbol,
         macd_fast,
         macd_slow,
