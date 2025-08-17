@@ -2,8 +2,12 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import logging
-from typing import Any, List, Optional
-from .strategy import BaseStrategy
+import numpy as np
+from typing import Any, List, Optional, Dict, Tuple
+from scipy.optimize import brute, differential_evolution
+from .strategy import BaseStrategy, DefaultStrategy
+from .strategy import DefaultStrategy
+import yfinance as yf
 
 
 class StrategyBacktester:
@@ -64,7 +68,7 @@ class StrategyBacktester:
                 buy_y.append(close_price)
                 entry_price = close_price
                 self.strategy.bought = True
-            elif signal == "SELL" and self.strategy.bought:
+            elif signal == "SELL" and self.strategy.bought and entry_price is not None:
                 sell_x.append(i)
                 sell_y.append(close_price)
                 trade_return = (close_price - entry_price) / entry_price * 100
@@ -161,6 +165,217 @@ class StrategyBacktester:
             plt.close()
         self.signals = list(zip(buy_x, buy_y, ['BUY']*len(buy_x))) + list(zip(sell_x, sell_y, ['SELL']*len(sell_x)))
         return equity_curve[-1] if equity_curve else 0.0
+
+    def optimize_parameters(
+        self,
+        symbol: str,
+        param_ranges: Dict[str, Tuple[float, float, int]],
+        method: str = "brute",
+        objective: str = "final_equity",
+        consistency_weight: float = 0.3,
+        max_equity_weight: float = 0.7,
+        verbose: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Optimize strategy parameters for maximum equity and consistency.
+        
+        Args:
+            symbol: Stock symbol for data fetching
+            param_ranges: Dict mapping parameter names to (min, max, steps) tuples
+                Example: {
+                    'macd_fast': (5, 20, 4),
+                    'macd_slow': (20, 50, 4),
+                    'macd_signal': (5, 15, 3),
+                    'rsi_period': (10, 20, 3),
+                    'roc_period': (3, 10, 3),
+                    'ema_mom_period': (15, 30, 4)
+                }
+            method: Optimization method ('brute' or 'differential_evolution')
+            objective: Optimization objective ('final_equity', 'consistency', or 'combined')
+            consistency_weight: Weight for consistency in combined objective
+            max_equity_weight: Weight for max equity in combined objective
+            verbose: Whether to print progress
+            
+        Returns:
+            Dict containing:
+                - best_params: Dict of optimized parameters
+                - best_score: Best objective score achieved
+                - final_equity: Final equity with best parameters
+                - consistency_score: Consistency score with best parameters
+                - all_results: List of all parameter combinations tried
+        """
+        # Fetch data for the symbol
+        if verbose:
+            print(f"🔍 Fetching data for {symbol}...")
+        
+        ticker = yf.Ticker(symbol)
+        historical_data = ticker.history(period="60d", interval="15m")
+        
+        if historical_data.empty:
+            raise ValueError(f"No data available for symbol {symbol}")
+        
+        # Prepare parameter combinations
+        param_names = list(param_ranges.keys())
+        param_bounds = []
+        
+        for param_name in param_names:
+            min_val, max_val, steps = param_ranges[param_name]
+            param_bounds.append(slice(min_val, max_val, steps))
+        
+        # Store all results for analysis
+        all_results = []
+        best_score = float('-inf')
+        best_params = {}
+        best_equity = 0.0
+        best_consistency = 0.0
+        
+        def objective_function(params):
+            """Objective function to maximize."""
+            nonlocal all_results, best_score, best_params, best_equity, best_consistency
+            
+            # Convert params to integers where needed
+            param_dict = {}
+            for i, param_name in enumerate(param_names):
+                param_dict[param_name] = int(params[i])
+            
+            try:
+                # Create strategy with these parameters
+                strategy = DefaultStrategy(
+                    historical_data,
+                    **param_dict
+                )
+                
+                # Create backtester and run simulation
+                backtester = StrategyBacktester(strategy)
+                final_equity = backtester.run(plot=False, slider=False)
+                
+                # Calculate consistency score (lower standard deviation of equity curve is better)
+                buy_signals, sell_signals, equity_curve = self._calculate_backtest_data(strategy, strategy.data)
+                
+                if len(equity_curve) > 1:
+                    # Calculate consistency as inverse of volatility (lower volatility = higher consistency)
+                    equity_changes = np.diff(equity_curve)
+                    if len(equity_changes) > 0:
+                        volatility = np.std(equity_changes)
+                        consistency_score = 1.0 / (1.0 + volatility)  # Higher is better
+                    else:
+                        consistency_score = 0.0
+                else:
+                    consistency_score = 0.0
+                
+                # Calculate combined objective based on method
+                if objective == "final_equity":
+                    score = final_equity
+                elif objective == "consistency":
+                    score = consistency_score * 100  # Scale to match equity range
+                elif objective == "combined":
+                    score = (max_equity_weight * final_equity + 
+                            consistency_weight * consistency_score * 100)
+                else:
+                    raise ValueError(f"Unknown objective: {objective}")
+                
+                # Store result
+                result = {
+                    'params': param_dict.copy(),
+                    'final_equity': final_equity,
+                    'consistency_score': consistency_score,
+                    'combined_score': score
+                }
+                all_results.append(result)
+                
+                # Update best if this is better
+                if score > best_score:
+                    best_score = score
+                    best_params = param_dict.copy()
+                    best_equity = final_equity
+                    best_consistency = consistency_score
+                
+                if verbose and len(all_results) % 10 == 0:
+                    print(f"📊 Tested {len(all_results)} combinations. Best score: {best_score:.2f}")
+                
+                # Return negative for minimization algorithms
+                return -score
+                
+            except Exception as e:
+                if verbose:
+                    print(f"❌ Error with params {param_dict}: {e}")
+                return float('inf')  # Bad score for failed combinations
+        
+        if verbose:
+            print(f"🎯 Starting optimization with {method} method...")
+            print(f"📈 Objective: {objective}")
+            if objective == "combined":
+                print(f"⚖️  Weights - Equity: {max_equity_weight}, Consistency: {consistency_weight}")
+        
+        # Run optimization
+        if method == "brute":
+            # Brute force search over all combinations
+            result = brute(objective_function, param_bounds, full_output=True, finish=None)
+            optimal_params = result[0]
+        elif method == "differential_evolution":
+            # More sophisticated optimization
+            bounds = [(param_ranges[name][0], param_ranges[name][1]) for name in param_names]
+            result = differential_evolution(objective_function, bounds, seed=42, maxiter=100)
+            optimal_params = result.x
+        else:
+            raise ValueError(f"Unknown optimization method: {method}")
+        
+        # Convert optimal params back to dict
+        final_optimal_params = {}
+        for i, param_name in enumerate(param_names):
+            final_optimal_params[param_name] = int(optimal_params[i])
+        
+        if verbose:
+            print(f"\n🏆 OPTIMIZATION COMPLETE!")
+            print(f"✅ Best Parameters: {final_optimal_params}")
+            print(f"📈 Final Equity: {best_equity:.2f}%")
+            print(f"🎯 Consistency Score: {best_consistency:.4f}")
+            print(f"⭐ Combined Score: {best_score:.2f}")
+            print(f"🔬 Total Combinations Tested: {len(all_results)}")
+        
+        return {
+            'best_params': final_optimal_params,
+            'best_score': best_score,
+            'final_equity': best_equity,
+            'consistency_score': best_consistency,
+            'all_results': all_results,
+            'method': method,
+            'objective': objective
+        }
+    
+    def _calculate_backtest_data(self, strategy, data):
+        """Helper function to calculate equity curve and signal points."""
+        buy_signals = {'x': [], 'y': []}
+        sell_signals = {'x': [], 'y': []}
+        equity_curve = []
+        entry_price = None
+        cumulative_return = 0.0
+        
+        for i in range(len(data)):
+            signal = strategy.check_signals(i)
+            close_price = data['Close'].iloc[i]
+            
+            if signal == "BUY" and not strategy.bought:
+                buy_signals['x'].append(i)
+                buy_signals['y'].append(close_price)
+                entry_price = close_price
+                strategy.bought = True
+            elif signal == "SELL" and strategy.bought and entry_price is not None:
+                sell_signals['x'].append(i)
+                sell_signals['y'].append(close_price)
+                trade_return = (close_price - entry_price) / entry_price * 100
+                cumulative_return += trade_return
+                entry_price = None
+                strategy.bought = False
+            
+            # Update equity curve
+            if strategy.bought and entry_price is not None:
+                current_return = (close_price - entry_price) / entry_price * 100
+                equity_curve.append(cumulative_return + current_return)
+            else:
+                equity_curve.append(cumulative_return)
+        
+        return buy_signals, sell_signals, equity_curve
 
 # Example usage in your notebook:
 # import strategy_backtester

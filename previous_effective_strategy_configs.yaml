@@ -1,0 +1,17 @@
+{
+  "strategy": "volatile",
+  "macd": {
+    "fast": 12,
+    "slow": 26,
+    "signal": 9
+  },
+  "rsi": {
+    "period": 14
+  },
+  "roc": {
+    "period": 5
+  },
+  "ema": {
+    "momentum": 20
+  }
+}
