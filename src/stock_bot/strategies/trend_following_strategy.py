@@ -25,24 +25,24 @@ class TrendFollowingStrategy(BaseStrategy):
     """
     
     def __init__(self, data: pd.DataFrame, **params):
-        # Strategy parameters with defaults - set before calling parent
-        self.short_ma_period = params.get('short_ma_period', 20)
-        self.long_ma_period = params.get('long_ma_period', 50)
-        self.trend_ma_period = params.get('trend_ma_period', 200)
-        self.rsi_period = params.get('rsi_period', 14)
-        self.rsi_oversold = params.get('rsi_oversold', 30)
-        self.rsi_overbought = params.get('rsi_overbought', 70)
-        self.volume_ma_period = params.get('volume_ma_period', 20)
-        self.min_volume_ratio = params.get('min_volume_ratio', 1.2)
-        self.trend_strength_period = params.get('trend_strength_period', 10)
-        self.min_trend_strength = params.get('min_trend_strength', 0.02)  # 2%
+        # Strategy parameters with defaults - more responsive
+        self.short_ma_period = 10  # Reduced from 20 to 10
+        self.long_ma_period = 30   # Reduced from 50 to 30
+        self.trend_ma_period = 100 # Reduced from 200 to 100
+        self.rsi_period = 14
+        self.rsi_oversold = 35     # Increased from 30 to 35
+        self.rsi_overbought = 65   # Decreased from 70 to 65
+        self.volume_ma_period = 20
+        self.min_volume_ratio = 0.8  # Reduced from 1.2 to 0.8
+        self.trend_strength_period = 5  # Reduced from 10 to 5
+        self.min_trend_strength = 0.005  # Reduced from 0.02 to 0.005
         
         # Position tracking
         self._entry_price = None
         self._peak_price = None
         self._trough_price = None
         self._last_trade_idx = -1
-        self._trade_cooldown = params.get('trade_cooldown', 5)  # Minimum bars between trades
+        self._trade_cooldown = 2  # Reduced from 5 to 2
         
         super().__init__(data, **params)
         

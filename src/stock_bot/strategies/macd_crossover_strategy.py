@@ -25,26 +25,26 @@ class MACDCrossoverStrategy(BaseStrategy):
     """
     
     def __init__(self, data: pd.DataFrame, **params):
-        # Strategy parameters with defaults
-        self.macd_fast = params.get('macd_fast', 12)
-        self.macd_slow = params.get('macd_slow', 26)
-        self.macd_signal = params.get('macd_signal', 9)
-        self.rsi_period = params.get('rsi_period', 14)
-        self.rsi_oversold = params.get('rsi_oversold', 30)
-        self.rsi_overbought = params.get('rsi_overbought', 70)
-        self.volume_ma_period = params.get('volume_ma_period', 20)
-        self.min_volume_ratio = params.get('min_volume_ratio', 0.8)
-        self.trend_filter_period = params.get('trend_filter_period', 50)
-        self.min_macd_strength = params.get('min_macd_strength', 0.001)
-        self.max_holding_period = params.get('max_holding_period', 30)
-        self.profit_target_pct = params.get('profit_target_pct', 0.03)  # 3%
-        self.stop_loss_pct = params.get('stop_loss_pct', 0.02)  # 2%
+        # Strategy parameters with defaults - more responsive
+        self.macd_fast = 8         # Reduced from 12 to 8
+        self.macd_slow = 21        # Reduced from 26 to 21
+        self.macd_signal = 5       # Reduced from 9 to 5
+        self.rsi_period = 14
+        self.rsi_oversold = 35     # Increased from 30 to 35
+        self.rsi_overbought = 65   # Decreased from 70 to 65
+        self.volume_ma_period = 20
+        self.min_volume_ratio = 0.6  # Reduced from 0.8 to 0.6
+        self.trend_filter_period = 30  # Reduced from 50 to 30
+        self.min_macd_strength = 0.0005  # Reduced from 0.001 to 0.0005
+        self.max_holding_period = 20  # Reduced from 30 to 20
+        self.profit_target_pct = 0.02  # Reduced from 0.03 to 0.02
+        self.stop_loss_pct = 0.015  # Reduced from 0.02 to 0.015
         
         # Position tracking
         self._entry_price = None
         self._entry_idx = None
         self._last_trade_idx = -1
-        self._trade_cooldown = params.get('trade_cooldown', 3)
+        self._trade_cooldown = 1  # Reduced from 3 to 1
         
         super().__init__(data, **params)
         

@@ -25,25 +25,25 @@ class MACDDivergenceStrategy(BaseStrategy):
     
     def __init__(self, data: pd.DataFrame, **params):
         # Strategy parameters with defaults
-        self.macd_fast = params.get('macd_fast', 12)
-        self.macd_slow = params.get('macd_slow', 26)
-        self.macd_signal = params.get('macd_signal', 9)
-        self.divergence_lookback = params.get('divergence_lookback', 20)
-        self.min_divergence_strength = params.get('min_divergence_strength', 0.02)  # 2%
-        self.rsi_period = params.get('rsi_period', 14)
-        self.rsi_oversold = params.get('rsi_oversold', 30)
-        self.rsi_overbought = params.get('rsi_overbought', 70)
-        self.volume_ma_period = params.get('volume_ma_period', 20)
-        self.min_volume_ratio = params.get('min_volume_ratio', 0.8)
-        self.max_holding_period = params.get('max_holding_period', 25)
-        self.profit_target_pct = params.get('profit_target_pct', 0.04)  # 4%
-        self.stop_loss_pct = params.get('stop_loss_pct', 0.025)  # 2.5%
+        self.macd_fast = 12
+        self.macd_slow = 26
+        self.macd_signal = 9
+        self.divergence_lookback = 20
+        self.min_divergence_strength = 0.02  # 2%
+        self.rsi_period = 14
+        self.rsi_oversold = 30
+        self.rsi_overbought = 70
+        self.volume_ma_period = 20
+        self.min_volume_ratio = 0.8
+        self.max_holding_period = 25
+        self.profit_target_pct = 0.04  # 4%
+        self.stop_loss_pct = 0.025  # 2.5%
         
         # Position tracking
         self._entry_price = None
         self._entry_idx = None
         self._last_trade_idx = -1
-        self._trade_cooldown = params.get('trade_cooldown', 5)
+        self._trade_cooldown = 5
         
         # Divergence tracking
         self._price_peaks = []

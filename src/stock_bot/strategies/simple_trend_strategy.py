@@ -19,19 +19,19 @@ class SimpleTrendStrategy(BaseStrategy):
     """
     
     def __init__(self, data: pd.DataFrame, **params):
-        # Strategy parameters with defaults
-        self.short_ma_period = params.get('short_ma_period', 10)
-        self.long_ma_period = params.get('long_ma_period', 30)
-        self.rsi_period = params.get('rsi_period', 14)
-        self.rsi_oversold = params.get('rsi_oversold', 30)
-        self.rsi_overbought = params.get('rsi_overbought', 70)
-        self.min_trend_strength = params.get('min_trend_strength', 0.01)  # 1%
+        # Strategy parameters with defaults - more responsive
+        self.short_ma_period = 5   # Reduced from 10 to 5
+        self.long_ma_period = 20   # Reduced from 30 to 20
+        self.rsi_period = 14
+        self.rsi_oversold = 35     # Increased from 30 to 35
+        self.rsi_overbought = 65   # Decreased from 70 to 65
+        self.min_trend_strength = 0.005  # Reduced from 0.01 to 0.005
         
         # Position tracking
         self._entry_price = None
         self._peak_price = None
         self._last_trade_idx = -1
-        self._trade_cooldown = params.get('trade_cooldown', 3)
+        self._trade_cooldown = 1  # Reduced from 3 to 1
         
         super().__init__(data, **params)
         

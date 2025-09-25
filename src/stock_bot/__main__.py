@@ -13,6 +13,7 @@ from scipy.optimize import differential_evolution, minimize
 from .strategy_backtester import StrategyBacktester
 from .strategy_loader import load_strategy
 from .strategy_tester import StrategyTester
+from .strategies.base_strategy import BaseStrategy
 import logging
 from typing import Any, Tuple, List, Dict, Optional
 
@@ -63,6 +64,35 @@ def load_config_file(config_path: str) -> Dict[str, Any]:
     
     return config
 
+def _parse_config(config_input: str) -> Dict[str, Any]:
+    """
+    Parse configuration from JSON string or file path.
+    
+    Args:
+        config_input: Either a JSON string or path to a JSON file
+        
+    Returns:
+        Dictionary containing configuration parameters
+        
+    Raises:
+        ValueError: If config cannot be parsed
+        FileNotFoundError: If config file doesn't exist
+    """
+    # Check if it's a file path (contains .json or looks like a file path)
+    if config_input.endswith('.json') or '/' in config_input or '\\' in config_input:
+        # Treat as file path
+        if not os.path.exists(config_input):
+            raise FileNotFoundError(f"Config file not found: {config_input}")
+        
+        with open(config_input, 'r') as f:
+            return json.load(f)
+    else:
+        # Treat as JSON string
+        try:
+            return json.loads(config_input)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON string: {e}")
+
 @click.group()
 def cli():
     """Main CLI group."""
@@ -112,10 +142,47 @@ def run_live_strategy_core(
     except KeyboardInterrupt:
         print("Exiting live dashboard...")
     return None
+
+def run_live_strategy_core_with_params(
+    symbol,
+    strategy,
+    strategy_class,
+    strategy_params,
+    interval,
+    min_points=40,
+    plot=True
+):
+    """Run the live strategy tester with comprehensive parameters from config."""
+    try:
+        # Load the strategy
+        strategy_cls = load_strategy(strategy, strategy_class)
+    except Exception as e:
+        print(f"Error loading strategy: {e}")
+        return None
+        
+    # Note: StrategyTester will create strategy instances with proper data
+    # We don't need to create the strategy instance here
+    
+    tester = StrategyTester(
+        symbol,
+        strategy_cls=strategy_cls,
+        interval=interval,
+        min_points=min_points,
+        strategy_params=strategy_params
+    )
+    tester.run()
+    print("Live dashboard running at http://127.0.0.1:8050/. Press Ctrl+C to exit.")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Exiting live dashboard...")
+    return None
 @cli.command()
 @click.argument("symbol")
 @click.option("--strategy", default="default", help="Strategy name or path to strategy file")
 @click.option("--strategy-class", help="Strategy class name (when using custom strategy file)")
+@click.option("--config", help="Configuration parameters as JSON string or path to JSON file")
 @click.option("--macd-fast", default=12, help="MACD fast period")
 @click.option("--macd-slow", default=26, help="MACD slow period")
 @click.option("--macd-signal", default=9, help="MACD signal period")
@@ -129,6 +196,7 @@ def run_live_strategy(
     symbol,
     strategy,
     strategy_class,
+    config,
     macd_fast,
     macd_slow,
     macd_signal,
@@ -140,20 +208,124 @@ def run_live_strategy(
     plot
 ):
     """CLI wrapper for run_live_strategy_core."""
-    return run_live_strategy_core(
+    # Parse config if provided
+    config_params = {}
+    if config:
+        try:
+            config_params = _parse_config(config)
+            print(f"✅ Loaded configuration: {config_params}")
+        except Exception as e:
+            print(f"❌ Error parsing config: {e}")
+            return
+    
+    # Override CLI parameters with config values if provided
+    macd_fast = config_params.get('macd_fast', macd_fast)
+    macd_slow = config_params.get('macd_slow', macd_slow)
+    macd_signal = config_params.get('macd_signal', macd_signal)
+    rsi_period = config_params.get('rsi_period', rsi_period)
+    roc_period = config_params.get('roc_period', roc_period)
+    ema_mom_period = config_params.get('ema_mom_period', ema_mom_period)
+    
+    # If config is provided, use comprehensive parameters
+    if config_params:
+        return run_live_strategy_core_with_params(
+            symbol,
+            strategy,
+            strategy_class,
+            config_params,
+            interval,
+            min_points,
+            plot
+        )
+    else:
+        # Use the original function with individual parameters
+        return run_live_strategy_core(
+            symbol,
+            strategy,
+            strategy_class,
+            macd_fast,
+            macd_slow,
+            macd_signal,
+            rsi_period,
+            roc_period,
+            ema_mom_period,
+            interval,
+            min_points,
+            plot
+        )
+
+def run_back_strategy_core_with_params(
+    symbol,
+    strategy,
+    strategy_class,
+    strategy_params,
+    period,
+    interval,
+    final_equity_only=False,
+    plot=True,
+    notebook=False,
+    output_mode="full",
+    use_notebook_plots=False
+):
+    """
+    Run the strategy with comprehensive parameters from config.
+    
+    Args:
+        symbol: Stock symbol (str) or list of symbols to analyze
+        strategy: Strategy name or path
+        strategy_class: Strategy class name (for custom strategies)
+        strategy_params: Dictionary of all strategy parameters
+        period: Data period (e.g., "60d")
+        interval: Data interval (e.g., "15m")
+        final_equity_only: Legacy parameter for backward compatibility
+        plot: Whether to show plots
+        notebook: Legacy parameter for backward compatibility
+        output_mode: Controls what is displayed/returned
+            - "equity_only": Return only the final equity change (no graphs)
+            - "equity_curve": Return/show only the equity change over time
+            - "full": Show equity curve, stock price with signals, bollinger bands, MACD and ROC
+        use_notebook_plots: If True, use matplotlib plots in notebook. If False (default), use dashboard
+    
+    Returns:
+        float or dict: Final equity percentage change (single symbol) or dict of results (multiple symbols)
+    """
+    # Handle multiple symbols
+    if isinstance(symbol, (list, tuple)):
+        return _run_multi_symbol_analysis_with_params(
+            symbol, strategy, strategy_class, strategy_params, period, interval, 
+            final_equity_only, plot, notebook, output_mode, use_notebook_plots
+        )
+    
+    # Single symbol analysis
+    historical_data = get_data(
         symbol,
-        strategy,
-        strategy_class,
-        macd_fast,
-        macd_slow,
-        macd_signal,
-        rsi_period,
-        roc_period,
-        ema_mom_period,
-        interval,
-        min_points,
-        plot
+        period=period,
+        interval=interval
     )
+    
+    if historical_data is None or historical_data.empty:
+        print(f"No data available for {symbol}")
+        return 0.0
+    
+    try:
+        # Load the strategy
+        strategy_cls = load_strategy(strategy, strategy_class)
+    except Exception as e:
+        print(f"Error loading strategy: {e}")
+        return 0.0
+    
+    # Create strategy instance with all parameters
+    strategy_instance = strategy_cls(historical_data, **strategy_params)
+    
+    # Run backtest
+    backtester = StrategyBacktester(strategy_instance)
+    
+    if output_mode == "equity_only":
+        return backtester.run(plot=False, slider=False)
+    elif output_mode == "equity_curve":
+        return backtester.run(plot=False, slider=False)
+    else:  # full comparison mode
+        return backtester.run(plot=plot, slider=not use_notebook_plots)
 
 def run_back_strategy_core(
     symbol,
@@ -677,6 +849,7 @@ def _show_notebook_plots(symbol, data, buy_signals, sell_signals, equity_curve, 
 @click.argument("symbol")  # Can be a single symbol or comma-separated list
 @click.option("--strategy", default="default", help="Strategy name or path to strategy file")
 @click.option("--strategy-class", help="Strategy class name (when using custom strategy file)")
+@click.option("--config", help="Configuration parameters as JSON string or path to JSON file")
 @click.option("--macd-fast", default=12, help="MACD fast period")
 @click.option("--macd-slow", default=26, help="MACD slow period")
 @click.option("--macd-signal", default=9, help="MACD signal period")
@@ -696,6 +869,7 @@ def run_back_strategy(
     symbol,
     strategy,
     strategy_class,
+    config,
     macd_fast,
     macd_slow,
     macd_signal,
@@ -720,24 +894,51 @@ def run_back_strategy(
     else:
         symbols = symbol.strip().upper()
     
-    return run_back_strategy_core(
-        symbols,  # Now supports both single symbol and list
-        strategy,
-        strategy_class,
-        macd_fast,
-        macd_slow,
-        macd_signal,
-        rsi_period,
-        roc_period,
-        ema_mom_period,
-        period,
-        interval,
-        final_equity_only,
-        plot,
-        notebook=False,
-        output_mode=output_mode,
-        use_notebook_plots=use_notebook_plots
-    )
+    # Parse config if provided
+    config_params = {}
+    if config:
+        try:
+            config_params = _parse_config(config)
+            print(f"✅ Loaded configuration: {config_params}")
+        except Exception as e:
+            print(f"❌ Error parsing config: {e}")
+            return
+    
+    # If config is provided, use the comprehensive parameter function
+    if config_params:
+        return run_back_strategy_core_with_params(
+            symbols,
+            strategy,
+            strategy_class,
+            config_params,
+            period,
+            interval,
+            final_equity_only,
+            plot,
+            notebook=False,
+            output_mode=output_mode,
+            use_notebook_plots=use_notebook_plots
+        )
+    else:
+        # Use the original function with individual parameters
+        return run_back_strategy_core(
+            symbols,  # Now supports both single symbol and list
+            strategy,
+            strategy_class,
+            macd_fast,
+            macd_slow,
+            macd_signal,
+            rsi_period,
+            roc_period,
+            ema_mom_period,
+            period,
+            interval,
+            final_equity_only,
+            plot,
+            notebook=False,
+            output_mode=output_mode,
+            use_notebook_plots=use_notebook_plots
+        )
 
 @cli.command()
 @click.argument("symbol")
@@ -1264,10 +1465,15 @@ def run_strategy_comparison_core(
         strategy_files = [strategy_path]
         strategy_names = [os.path.splitext(os.path.basename(strategy_path))[0]]
     elif os.path.isdir(strategy_path):
-        # Find all Python files in the directory
-        strategy_files = glob.glob(os.path.join(strategy_path, "*.py"))
-        strategy_files = [f for f in strategy_files if not f.endswith("__init__.py")]
-        strategy_names = [os.path.splitext(os.path.basename(f))[0] for f in strategy_files]
+        # Use built-in strategies instead of trying to load files directly
+        # This avoids the relative import issue
+        from .strategy_loader import get_available_strategies
+        available_strategies = get_available_strategies()
+        strategy_files = []
+        strategy_names = []
+        for name, strategy_cls in available_strategies.items():
+            strategy_files.append(name)  # Use name as identifier
+            strategy_names.append(name)
     else:
         print(f"❌ Error: {strategy_path} is not a valid file, directory, or 'builtin'")
         return None
@@ -1295,16 +1501,8 @@ def run_strategy_comparison_core(
         print(f"\n🧪 Testing strategy {i+1}/{len(strategy_files)}: {strategy_name}")
         
         try:
-            # Load strategy class
-            if strategy_file in ['default', 'trend_following', 'simple_trend', 'aggressive', 'mean_reversion', 'simple_mean_reversion', 'macd_crossover', 'macd_divergence', 'macd_histogram']:
-                # Built-in strategy
-                strategy_cls = load_strategy(strategy_file)
-            elif strategy_class and i == 0:
-                # Use provided class name for single file
-                strategy_cls = load_strategy(strategy_file, strategy_class)
-            else:
-                # Try to auto-detect class name
-                strategy_cls = load_strategy(strategy_file)
+            # Load strategy class - all are now built-in strategies
+            strategy_cls = load_strategy(strategy_file)
             
             strategy_classes[strategy_name] = strategy_cls
             
@@ -2114,38 +2312,324 @@ def _create_multi_symbol_dashboard(symbols, results, output_config):
     except Exception as e:
         print(f"❌ Error creating dashboard: {e}")
 
+def run_all_strategies_test_core(
+    symbols,
+    period,
+    interval,
+    output_mode,
+    use_notebook_plots,
+    save_results,
+    results_file
+):
+    """Test all available strategies on the given symbols."""
+    import os
+    import json
+    from datetime import datetime
+    
+    # Get all strategy files
+    strategies_dir = os.path.join(os.path.dirname(__file__), 'strategies')
+    strategy_files = [f for f in os.listdir(strategies_dir) 
+                     if f.endswith('.py') and not f.startswith('__') and f != 'base_strategy.py']
+    
+    # Map strategy files to strategy names
+    strategy_mapping = {
+        'default_strategy.py': 'default',
+        'aggressive_strategy.py': 'aggressive',
+        'trend_following_strategy.py': 'trend_following',
+        'mean_reversion_strategy.py': 'mean_reversion',
+        'macd_crossover_strategy.py': 'macd_crossover',
+        'macd_divergence_strategy.py': 'macd_divergence',
+        'macd_histogram_strategy.py': 'macd_histogram',
+        'simple_trend_strategy.py': 'simple_trend',
+        'simple_mean_reversion_strategy.py': 'simple_mean_reversion'
+    }
+    
+    print(f"🧪 Testing {len(strategy_files)} strategies on {len(symbols)} symbols")
+    print(f"📊 Period: {period}, Interval: {interval}")
+    print("=" * 80)
+    
+    results = {
+        'timestamp': datetime.now().isoformat(),
+        'symbols': list(symbols),
+        'period': period,
+        'interval': interval,
+        'strategies': {}
+    }
+    
+    total_tests = len(strategy_files) * len(symbols)
+    current_test = 0
+    
+    for strategy_file in strategy_files:
+        strategy_name = strategy_mapping.get(strategy_file, strategy_file.replace('.py', ''))
+        print(f"\n🔍 Testing {strategy_name}...")
+        
+        strategy_results = {
+            'file': strategy_file,
+            'symbols': {}
+        }
+        
+        for symbol in symbols:
+            current_test += 1
+            print(f"  [{current_test}/{total_tests}] Testing {symbol}...")
+            
+            try:
+                # Run backtest for this strategy and symbol using built-in strategy loading
+                from .strategy_loader import load_strategy
+                strategy_cls = load_strategy(strategy_name)
+                
+                # Create a simple backtester test
+                import yfinance as yf
+                ticker = yf.Ticker(symbol)
+                data = ticker.history(period=period, interval=interval)
+                
+                if data.empty:
+                    print(f"    ❌ {symbol}: No data available")
+                    continue
+                
+                # Create strategy instance with default parameters
+                strategy = strategy_cls(data)
+                
+                # Create backtester
+                from .strategy_backtester import StrategyBacktester
+                backtester = StrategyBacktester(strategy)
+                
+                # Run backtest
+                final_equity = backtester.run(final_equity_only=True, plot=False)
+                
+                result = {
+                    'final_equity_change': final_equity,
+                    'final_equity': 10000 + (10000 * final_equity / 100) if final_equity else 10000
+                }
+                
+                if result and 'final_equity_change' in result:
+                    equity_change = result['final_equity_change']
+                    strategy_results['symbols'][symbol] = {
+                        'equity_change': equity_change,
+                        'status': 'success'
+                    }
+                    print(f"    ✅ {symbol}: {equity_change:.2f}%")
+                else:
+                    strategy_results['symbols'][symbol] = {
+                        'equity_change': 0.0,
+                        'status': 'no_signals'
+                    }
+                    print(f"    ⚠️  {symbol}: No signals generated")
+                    
+            except Exception as e:
+                strategy_results['symbols'][symbol] = {
+                    'equity_change': 0.0,
+                    'status': 'error',
+                    'error': str(e)
+                }
+                print(f"    ❌ {symbol}: Error - {str(e)}")
+        
+        # Calculate strategy summary
+        symbol_results = list(strategy_results['symbols'].values())
+        successful_tests = [r for r in symbol_results if r['status'] == 'success']
+        
+        if successful_tests:
+            avg_equity_change = sum(r['equity_change'] for r in successful_tests) / len(successful_tests)
+            strategy_results['summary'] = {
+                'avg_equity_change': avg_equity_change,
+                'successful_tests': len(successful_tests),
+                'total_tests': len(symbol_results),
+                'success_rate': len(successful_tests) / len(symbol_results)
+            }
+        else:
+            strategy_results['summary'] = {
+                'avg_equity_change': 0.0,
+                'successful_tests': 0,
+                'total_tests': len(symbol_results),
+                'success_rate': 0.0
+            }
+        
+        results['strategies'][strategy_name] = strategy_results
+        
+        # Print strategy summary
+        summary = strategy_results['summary']
+        print(f"  📈 Summary: {summary['successful_tests']}/{summary['total_tests']} successful, "
+              f"Avg: {summary['avg_equity_change']:.2f}%, "
+              f"Success Rate: {summary['success_rate']:.1%}")
+    
+    # Print overall results
+    print("\n" + "=" * 80)
+    print("🏆 OVERALL RESULTS")
+    print("=" * 80)
+    
+    # Sort strategies by average performance
+    sorted_strategies = sorted(
+        results['strategies'].items(),
+        key=lambda x: x[1]['summary']['avg_equity_change'],
+        reverse=True
+    )
+    
+    print(f"{'Strategy':<25} {'Avg Return':<12} {'Success Rate':<12} {'Tests':<8}")
+    print("-" * 60)
+    
+    for strategy_name, strategy_data in sorted_strategies:
+        summary = strategy_data['summary']
+        print(f"{strategy_name:<25} {summary['avg_equity_change']:>10.2f}% {summary['success_rate']:>10.1%} {summary['successful_tests']:>6}/{summary['total_tests']}")
+    
+    # Save results if requested
+    if save_results:
+        with open(results_file, 'w') as f:
+            json.dump(results, f, indent=2)
+        print(f"\n💾 Results saved to {results_file}")
+    
+    return results
+
 def run_strategy_optimization_core(
-    config_file: str,
-    strategy_name: Optional[str],
-    generations: int,
-    population_size: int,
-    mutation_rate: float,
-    crossover_rate: float,
-    max_iterations: int,
-    optimization_method: str,
-    consistency_weight: float,
-    profit_weight: float,
-    dashboard: bool
+    strategy_name: str = None,
+    symbols: List[str] = None,
+    method: str = "brute",
+    objective: str = "combined",
+    equity_weight: float = 0.6,
+    consistency_weight: float = 0.4,
+    output_mode: str = "full",
+    use_notebook_plots: bool = False,
+    steps: int = 3,
+    period: str = "60d",
+    interval: str = "15m",
+    generations: int = 50,
+    population_size: int = 20,
+    mutation_rate: float = 0.1,
+    crossover_rate: float = 0.7,
+    max_iterations: int = 100,
+    config_file: str = None,
+    optimization_method: str = "genetic",
+    profit_weight: float = 0.7,
+    dashboard: bool = False
 ):
     """
-    Optimize strategy parameters using genetic algorithms or other optimization methods.
+    Optimize strategy parameters for a specific strategy across multiple symbols.
     
     Args:
-        config_file: Path to the YAML configuration file
-        strategy_name: Strategy to optimize (default: first strategy in config)
-        generations: Number of optimization generations
+        strategy_name: Name of the strategy to optimize
+        symbols: List of symbols to optimize across
+        method: Optimization method ('brute', 'differential_evolution', 'genetic')
+        objective: Optimization objective ('final_equity', 'consistency', 'combined')
+        equity_weight: Weight for equity in combined objective
+        consistency_weight: Weight for consistency in combined objective
+        output_mode: Output mode for results
+        use_notebook_plots: Whether to use notebook plots
+        steps: Number of steps for brute force optimization
+        period: Data period
+        interval: Data interval
+        generations: Number of generations for genetic algorithm
         population_size: Population size for genetic algorithm
         mutation_rate: Mutation rate for genetic algorithm
         crossover_rate: Crossover rate for genetic algorithm
         max_iterations: Maximum iterations for optimization
-        optimization_method: Optimization method to use
-        consistency_weight: Weight for consistency in fitness function (0-1)
-        profit_weight: Weight for profit in fitness function (0-1)
-        dashboard: Whether to show optimization dashboard
+        config_file: Path to config file (for backward compatibility)
+        optimization_method: Optimization method (for backward compatibility)
+        profit_weight: Profit weight (for backward compatibility)
+        dashboard: Whether to show dashboard (for backward compatibility)
     
     Returns:
         dict: Optimization results
     """
+    try:
+        # Handle backward compatibility with config file approach
+        if config_file is not None:
+            return _run_config_based_optimization(
+                config_file, strategy_name, generations, population_size, 
+                mutation_rate, crossover_rate, max_iterations, optimization_method,
+                consistency_weight, profit_weight, dashboard
+            )
+        
+        # Validate inputs
+        if not strategy_name:
+            print("❌ Strategy name is required")
+            return None
+        
+        if not symbols:
+            print("❌ At least one symbol is required")
+            return None
+        
+        # Import strategy class
+        strategy_class = _get_strategy_class(strategy_name)
+        if strategy_class is None:
+            print(f"❌ Unknown strategy: {strategy_name}")
+            return None
+        
+        # Get parameter ranges for the strategy
+        param_ranges = _get_strategy_parameter_ranges(strategy_name)
+        
+        if not param_ranges:
+            print(f"❌ No parameter ranges defined for strategy: {strategy_name}")
+            return None
+        
+        print(f"🔧 Optimizing {strategy_name} across {len(symbols)} symbols: {symbols}")
+        print(f"📊 Parameters to optimize: {list(param_ranges.keys())}")
+        
+        # Run optimization based on method
+        if method == "genetic":
+            results = _run_genetic_optimization_new(
+                strategy_name, symbols, period, interval, param_ranges,
+                generations, population_size, mutation_rate, crossover_rate,
+                consistency_weight, equity_weight, output_mode, use_notebook_plots
+            )
+        elif method == "differential_evolution":
+            results = _run_differential_evolution_optimization_new(
+                strategy_name, symbols, period, interval, param_ranges,
+                max_iterations, consistency_weight, equity_weight, output_mode, use_notebook_plots
+            )
+        else:  # brute
+            results = _run_brute_optimization_new(
+                strategy_name, symbols, period, interval, param_ranges,
+                steps, consistency_weight, equity_weight, output_mode, use_notebook_plots
+            )
+        
+        # Display results
+        _display_optimization_results_new(results, strategy_name, symbols, output_mode)
+        
+        return results
+        
+    except Exception as e:
+        print(f"❌ Error during optimization: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def _get_strategy_class(strategy_name: str):
+    """Get strategy class by name."""
+    try:
+        from stock_bot.strategies import (
+            DefaultStrategy, TrendFollowingStrategy, SimpleTrendStrategy,
+            AggressiveStrategy, MeanReversionStrategy, SimpleMeanReversionStrategy,
+            MACDCrossoverStrategy, MACDDivergenceStrategy, MACDHistogramStrategy
+        )
+        
+        strategy_map = {
+            'DefaultStrategy': DefaultStrategy,
+            'TrendFollowingStrategy': TrendFollowingStrategy,
+            'SimpleTrendStrategy': SimpleTrendStrategy,
+            'AggressiveStrategy': AggressiveStrategy,
+            'MeanReversionStrategy': MeanReversionStrategy,
+            'SimpleMeanReversionStrategy': SimpleMeanReversionStrategy,
+            'MACDCrossoverStrategy': MACDCrossoverStrategy,
+            'MACDDivergenceStrategy': MACDDivergenceStrategy,
+            'MACDHistogramStrategy': MACDHistogramStrategy,
+            'default': DefaultStrategy,
+            'trend_following': TrendFollowingStrategy,
+            'simple_trend': SimpleTrendStrategy,
+            'aggressive': AggressiveStrategy,
+            'mean_reversion': MeanReversionStrategy,
+            'simple_mean_reversion': SimpleMeanReversionStrategy,
+            'macd_crossover': MACDCrossoverStrategy,
+            'macd_divergence': MACDDivergenceStrategy,
+            'macd_histogram': MACDHistogramStrategy
+        }
+        
+        return strategy_map.get(strategy_name)
+    except ImportError as e:
+        print(f"❌ Error importing strategies: {e}")
+        return None
+
+def _run_config_based_optimization(config_file, strategy_name, generations, population_size, 
+                                 mutation_rate, crossover_rate, max_iterations, optimization_method,
+                                 consistency_weight, profit_weight, dashboard):
+    """Run optimization using config file (backward compatibility)."""
     try:
         # Load configuration
         config = load_config_file(config_file)
@@ -2202,19 +2686,30 @@ def run_strategy_optimization_core(
         return results
         
     except Exception as e:
-        print(f"❌ Error during optimization: {e}")
+        print(f"❌ Error during config-based optimization: {e}")
         return None
 
 def _get_strategy_parameter_ranges(strategy_name: str) -> Dict[str, Tuple[float, float]]:
     """Get parameter ranges for different strategies."""
     ranges = {
+        'DefaultStrategy': {
+            'trade_cooldown': (10, 30)
+        },
         'default': {
-            'macd_fast': (8, 20),
-            'macd_slow': (20, 35),
-            'macd_signal': (7, 15),
+            'trade_cooldown': (10, 30)
+        },
+        'TrendFollowingStrategy': {
+            'short_ma_period': (10, 30),
+            'long_ma_period': (30, 70),
+            'trend_ma_period': (100, 300),
             'rsi_period': (10, 20),
-            'roc_period': (3, 10),
-            'ema_mom_period': (15, 30)
+            'rsi_oversold': (20, 40),
+            'rsi_overbought': (60, 80),
+            'volume_ma_period': (10, 30),
+            'min_volume_ratio': (0.8, 2.0),
+            'trend_strength_period': (5, 20),
+            'min_trend_strength': (0.01, 0.05),
+            'trade_cooldown': (3, 10)
         },
         'trend_following': {
             'short_ma_period': (10, 30),
@@ -2226,7 +2721,26 @@ def _get_strategy_parameter_ranges(strategy_name: str) -> Dict[str, Tuple[float,
             'volume_ma_period': (10, 30),
             'min_volume_ratio': (0.8, 2.0),
             'trend_strength_period': (5, 20),
-            'min_trend_strength': (0.01, 0.05)
+            'min_trend_strength': (0.01, 0.05),
+            'trade_cooldown': (3, 10)
+        },
+        'MeanReversionStrategy': {
+            'bb_period': (15, 25),
+            'bb_std': (1.5, 2.5),
+            'rsi_period': (10, 20),
+            'rsi_oversold': (20, 40),
+            'rsi_overbought': (60, 80),
+            'zscore_period': (15, 25),
+            'zscore_threshold': (1.5, 3.0),
+            'volume_ma_period': (10, 30),
+            'min_volume_ratio': (0.8, 2.0),
+            'max_volume_ratio': (1.5, 3.0),
+            'mean_reversion_period': (5, 15),
+            'min_reversion_strength': (0.005, 0.02),
+            'max_holding_period': (10, 30),
+            'profit_target_pct': (0.01, 0.04),
+            'stop_loss_pct': (0.02, 0.05),
+            'trade_cooldown': (2, 8)
         },
         'mean_reversion': {
             'bb_period': (15, 25),
@@ -2236,12 +2750,29 @@ def _get_strategy_parameter_ranges(strategy_name: str) -> Dict[str, Tuple[float,
             'rsi_overbought': (60, 80),
             'zscore_period': (15, 25),
             'zscore_threshold': (1.5, 3.0),
-            'williams_period': (10, 20),
-            'stoch_k': (10, 20),
-            'stoch_d': (3, 7),
-            'cci_period': (10, 20),
             'volume_ma_period': (10, 30),
-            'min_volume_ratio': (0.8, 2.0)
+            'min_volume_ratio': (0.8, 2.0),
+            'max_volume_ratio': (1.5, 3.0),
+            'mean_reversion_period': (5, 15),
+            'min_reversion_strength': (0.005, 0.02),
+            'max_holding_period': (10, 30),
+            'profit_target_pct': (0.01, 0.04),
+            'stop_loss_pct': (0.02, 0.05),
+            'trade_cooldown': (2, 8)
+        },
+        'MACDCrossoverStrategy': {
+            'macd_fast': (8, 20),
+            'macd_slow': (20, 35),
+            'macd_signal': (7, 15),
+            'rsi_period': (10, 20),
+            'rsi_oversold': (20, 40),
+            'rsi_overbought': (60, 80),
+            'trend_filter_period': (30, 70),
+            'min_macd_strength': (0.0005, 0.002),
+            'max_holding_period': (15, 50),
+            'profit_target_pct': (0.01, 0.05),
+            'stop_loss_pct': (0.01, 0.04),
+            'trade_cooldown': (2, 8)
         },
         'macd_crossover': {
             'macd_fast': (8, 20),
@@ -2254,7 +2785,74 @@ def _get_strategy_parameter_ranges(strategy_name: str) -> Dict[str, Tuple[float,
             'min_macd_strength': (0.0005, 0.002),
             'max_holding_period': (15, 50),
             'profit_target_pct': (0.01, 0.05),
-            'stop_loss_pct': (0.01, 0.04)
+            'stop_loss_pct': (0.01, 0.04),
+            'trade_cooldown': (2, 8)
+        },
+        'AggressiveStrategy': {
+            'lookback': (3, 10),
+            'momentum_threshold': (0.005, 0.02),
+            'trade_cooldown': (1, 5)
+        },
+        'aggressive': {
+            'lookback': (3, 10),
+            'momentum_threshold': (0.005, 0.02),
+            'trade_cooldown': (1, 5)
+        },
+        'SimpleTrendStrategy': {
+            'short_ma_period': (5, 20),
+            'long_ma_period': (20, 50),
+            'rsi_period': (10, 20),
+            'rsi_oversold': (20, 40),
+            'rsi_overbought': (60, 80),
+            'min_trend_strength': (0.005, 0.02),
+            'trade_cooldown': (2, 8)
+        },
+        'simple_trend': {
+            'short_ma_period': (5, 20),
+            'long_ma_period': (20, 50),
+            'rsi_period': (10, 20),
+            'rsi_oversold': (20, 40),
+            'rsi_overbought': (60, 80),
+            'min_trend_strength': (0.005, 0.02),
+            'trade_cooldown': (2, 8)
+        },
+        'SimpleMeanReversionStrategy': {
+            'bb_period': (15, 25),
+            'bb_std': (1.5, 2.5),
+            'rsi_period': (10, 20),
+            'rsi_oversold': (20, 40),
+            'rsi_overbought': (60, 80),
+            'sma_period': (15, 25),
+            'profit_target_pct': (0.01, 0.03),
+            'stop_loss_pct': (0.015, 0.03),
+            'max_holding_period': (10, 25),
+            'trade_cooldown': (1, 5)
+        },
+        'simple_mean_reversion': {
+            'bb_period': (15, 25),
+            'bb_std': (1.5, 2.5),
+            'rsi_period': (10, 20),
+            'rsi_oversold': (20, 40),
+            'rsi_overbought': (60, 80),
+            'sma_period': (15, 25),
+            'profit_target_pct': (0.01, 0.03),
+            'stop_loss_pct': (0.015, 0.03),
+            'max_holding_period': (10, 25),
+            'trade_cooldown': (1, 5)
+        },
+        'MACDDivergenceStrategy': {
+            'macd_fast': (8, 20),
+            'macd_slow': (20, 35),
+            'macd_signal': (7, 15),
+            'divergence_lookback': (10, 30),
+            'min_divergence_strength': (0.01, 0.05),
+            'rsi_period': (10, 20),
+            'rsi_oversold': (20, 40),
+            'rsi_overbought': (60, 80),
+            'max_holding_period': (15, 40),
+            'profit_target_pct': (0.02, 0.06),
+            'stop_loss_pct': (0.015, 0.04),
+            'trade_cooldown': (3, 10)
         },
         'macd_divergence': {
             'macd_fast': (8, 20),
@@ -2267,7 +2865,23 @@ def _get_strategy_parameter_ranges(strategy_name: str) -> Dict[str, Tuple[float,
             'rsi_overbought': (60, 80),
             'max_holding_period': (15, 40),
             'profit_target_pct': (0.02, 0.06),
-            'stop_loss_pct': (0.015, 0.04)
+            'stop_loss_pct': (0.015, 0.04),
+            'trade_cooldown': (3, 10)
+        },
+        'MACDHistogramStrategy': {
+            'macd_fast': (8, 20),
+            'macd_slow': (20, 35),
+            'macd_signal': (7, 15),
+            'histogram_smoothing': (2, 5),
+            'min_histogram_strength': (0.0002, 0.001),
+            'momentum_threshold': (0.0005, 0.002),
+            'rsi_period': (10, 20),
+            'rsi_oversold': (20, 40),
+            'rsi_overbought': (60, 80),
+            'max_holding_period': (10, 30),
+            'profit_target_pct': (0.015, 0.04),
+            'stop_loss_pct': (0.01, 0.03),
+            'trade_cooldown': (1, 5)
         },
         'macd_histogram': {
             'macd_fast': (8, 20),
@@ -2281,7 +2895,8 @@ def _get_strategy_parameter_ranges(strategy_name: str) -> Dict[str, Tuple[float,
             'rsi_overbought': (60, 80),
             'max_holding_period': (10, 30),
             'profit_target_pct': (0.015, 0.04),
-            'stop_loss_pct': (0.01, 0.03)
+            'stop_loss_pct': (0.01, 0.03),
+            'trade_cooldown': (1, 5)
         }
     }
     
@@ -2611,8 +3226,181 @@ def test_config(
     symbol,
     strategy
 ):
-    """Test strategies using a configuration file with multiple symbols and strategies."""
+    """Test strategies using a configuration file with multiple symbols and strategies.
+    
+    This command allows you to test multiple strategies on multiple symbols using
+    configuration parameters from a YAML file. All strategy parameters (RSI, MACD,
+    Bollinger Bands, etc.) can be configured in the YAML file.
+    
+    Example:
+        stock-bot test-config configs/config_example.yaml
+        stock-bot test-config configs/config_example.yaml --symbol AAPL
+        stock-bot test-config configs/config_example.yaml --strategy mean_reversion
+    """
     return run_config_test_core(config_file, symbol, strategy)
+
+@cli.command()
+@click.argument("symbol")
+@click.argument("strategy")
+@click.option("--config", help="Configuration file path for strategy parameters")
+@click.option("--period", default="60d", help="Data period")
+@click.option("--interval", default="15m", help="Data interval")
+@click.option("--output-mode", default="comparison", type=click.Choice(["equity_only", "equity_curve", "comparison"]), help="Output mode")
+@click.option("--use-notebook-plots", is_flag=True, help="Use matplotlib plots instead of dashboard")
+def run_with_config(
+    symbol,
+    strategy,
+    config,
+    period,
+    interval,
+    output_mode,
+    use_notebook_plots
+):
+    """Run a single strategy on a symbol using configuration parameters from a YAML file.
+    
+    This command allows you to run any strategy with all parameters (RSI, MACD, Bollinger Bands, etc.)
+    configured through a YAML file instead of command line arguments.
+    
+    Example:
+        stock-bot run-with-config AAPL mean_reversion --config configs/config_example.yaml
+        stock-bot run-with-config MSFT macd_crossover --config configs/config_example.yaml --period 1y
+    """
+    if config:
+        try:
+            config_data = load_config_file(config)
+            strategy_params = config_data.get('strategy_params', {})
+            print(f"✅ Loaded strategy parameters from {config}")
+        except Exception as e:
+            print(f"❌ Error loading config file: {e}")
+            return
+    else:
+        strategy_params = {}
+        print("⚠️  No config file provided, using default parameters")
+    
+    # Use config parameters or defaults
+    macd_fast = strategy_params.get('macd_fast', 12)
+    macd_slow = strategy_params.get('macd_slow', 26)
+    macd_signal = strategy_params.get('macd_signal', 9)
+    rsi_period = strategy_params.get('rsi_period', 14)
+    roc_period = strategy_params.get('roc_period', 5)
+    ema_mom_period = strategy_params.get('ema_mom_period', 20)
+    
+    return run_back_strategy_core(
+        symbol=symbol,
+        strategy=strategy,
+        strategy_class=None,
+        macd_fast=macd_fast,
+        macd_slow=macd_slow,
+        macd_signal=macd_signal,
+        rsi_period=rsi_period,
+        roc_period=roc_period,
+        ema_mom_period=ema_mom_period,
+        period=period,
+        interval=interval,
+        final_equity_only=False,
+        plot=True,
+        notebook=False,
+        output_mode=output_mode,
+        use_notebook_plots=use_notebook_plots
+    )
+
+@cli.command()
+@click.argument("symbols", nargs=-1, required=True)
+@click.option("--period", default="60d", help="Data period for testing")
+@click.option("--interval", default="15m", help="Data interval for testing")
+@click.option("--output-mode", 
+              type=click.Choice(['equity_only', 'equity_curve', 'full']), 
+              default='equity_only',
+              help="Output mode for individual strategy tests")
+@click.option("--use-notebook-plots", is_flag=True, help="Use matplotlib plots instead of dashboard")
+@click.option("--save-results", is_flag=True, help="Save results to file")
+@click.option("--results-file", default="strategy_test_results.json", help="File to save results")
+def test_all_strategies(
+    symbols,
+    period,
+    interval,
+    output_mode,
+    use_notebook_plots,
+    save_results,
+    results_file
+):
+    """Test all available strategies on the given symbols."""
+    return run_all_strategies_test_core(
+        symbols=symbols,
+        period=period,
+        interval=interval,
+        output_mode=output_mode,
+        use_notebook_plots=use_notebook_plots,
+        save_results=save_results,
+        results_file=results_file
+    )
+
+@cli.command()
+@click.argument("strategy_name")
+@click.argument("symbols", nargs=-1, required=True)
+@click.option("--method", 
+              type=click.Choice(['brute', 'differential_evolution', 'genetic']), 
+              default='brute',
+              help="Optimization method")
+@click.option("--objective",
+              type=click.Choice(['final_equity', 'consistency', 'combined']),
+              default='combined',
+              help="Optimization objective")
+@click.option("--equity-weight", default=0.6, help="Weight for equity in combined objective")
+@click.option("--consistency-weight", default=0.4, help="Weight for consistency in combined objective")
+@click.option("--output-mode", 
+              type=click.Choice(['params_only', 'equity_only', 'full']), 
+              default='full',
+              help="Output mode: params_only (just parameters), equity_only (parameters + equity), full (complete analysis)")
+@click.option("--use-notebook-plots", is_flag=True, help="Use matplotlib plots instead of dashboard")
+@click.option("--steps", default=3, help="Number of steps to test in each parameter range")
+@click.option("--period", default="60d", help="Data period (e.g., '1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'ytd', 'max')")
+@click.option("--interval", default="15m", help="Data interval (e.g., '1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo', '3mo')")
+@click.option("--generations", default=50, help="Number of optimization generations (for genetic method)")
+@click.option("--population-size", default=20, help="Population size for genetic algorithm")
+@click.option("--mutation-rate", default=0.1, help="Mutation rate for genetic algorithm")
+@click.option("--crossover-rate", default=0.7, help="Crossover rate for genetic algorithm")
+@click.option("--max-iterations", default=100, help="Maximum iterations for optimization")
+def optimize_strategy_parameters(
+    strategy_name,
+    symbols,
+    method,
+    objective,
+    equity_weight,
+    consistency_weight,
+    output_mode,
+    use_notebook_plots,
+    steps,
+    period,
+    interval,
+    generations,
+    population_size,
+    mutation_rate,
+    crossover_rate,
+    max_iterations
+):
+    """Optimize parameters for a specific strategy across multiple symbols.
+    
+    Example: python -m src.stock_bot optimize-strategy-parameters DefaultStrategy AAPL MSFT GOOGL --method brute --steps 3
+    """
+    return run_strategy_optimization_core(
+        strategy_name=strategy_name,
+        symbols=list(symbols),
+        method=method,
+        objective=objective,
+        equity_weight=equity_weight,
+        consistency_weight=consistency_weight,
+        output_mode=output_mode,
+        use_notebook_plots=use_notebook_plots,
+        steps=steps,
+        period=period,
+        interval=interval,
+        generations=generations,
+        population_size=population_size,
+        mutation_rate=mutation_rate,
+        crossover_rate=crossover_rate,
+        max_iterations=max_iterations
+    )
 
 @cli.command()
 @click.argument("config_file")
@@ -2645,6 +3433,305 @@ def optimize_strategy(
         crossover_rate, max_iterations, optimization_method, consistency_weight, 
         profit_weight, dashboard
     )
+
+def _run_brute_optimization_new(
+    strategy_name: str, symbols: List[str], period: str, interval: str,
+    param_ranges: Dict[str, Tuple[float, float]], steps: int,
+    consistency_weight: float, equity_weight: float, output_mode: str, use_notebook_plots: bool
+) -> Dict[str, Any]:
+    """Run brute force optimization for new strategy-based approach."""
+    print(f"🔍 Starting brute force optimization...")
+    print(f"   Steps per parameter: {steps}")
+    
+    from scipy.optimize import brute
+    
+    param_names = list(param_ranges.keys())
+    param_bounds = [param_ranges[name] for name in param_names]
+    
+    def objective_function(params):
+        param_dict = dict(zip(param_names, params))
+        return _evaluate_fitness_new(
+            strategy_name, symbols, period, interval, param_dict,
+            consistency_weight, equity_weight
+        )
+    
+    # Create ranges for brute force
+    ranges = []
+    for name in param_names:
+        min_val, max_val = param_ranges[name]
+        ranges.append((min_val, max_val))
+    
+    # Use brute force with explicit ranges
+    from itertools import product
+    
+    # Generate all parameter combinations
+    param_values = []
+    for name in param_names:
+        min_val, max_val = param_ranges[name]
+        if steps > 1:
+            values = np.linspace(min_val, max_val, steps)
+        else:
+            values = [min_val]
+        param_values.append(values)
+    
+    best_fitness = float('-inf')
+    best_params = None
+    
+    for param_combo in product(*param_values):
+        param_dict = dict(zip(param_names, param_combo))
+        fitness = _evaluate_fitness_new(
+            strategy_name, symbols, period, interval, param_dict,
+            consistency_weight, equity_weight
+        )
+        
+        if fitness > best_fitness:
+            best_fitness = fitness
+            best_params = param_combo
+    
+    if best_params is None:
+        # No valid parameters found, use defaults
+        best_params = [param_ranges[name][0] for name in param_names]
+        best_fitness = float('-inf')
+    
+    # Convert to dict
+    best_params_dict = dict(zip(param_names, best_params))
+    
+    return {
+        'method': 'brute',
+        'best_params': best_params_dict,
+        'best_fitness': best_fitness,
+        'strategy_name': strategy_name,
+        'symbols': symbols
+    }
+
+def _run_differential_evolution_optimization_new(
+    strategy_name: str, symbols: List[str], period: str, interval: str,
+    param_ranges: Dict[str, Tuple[float, float]], max_iterations: int,
+    consistency_weight: float, equity_weight: float, output_mode: str, use_notebook_plots: bool
+) -> Dict[str, Any]:
+    """Run differential evolution optimization for new strategy-based approach."""
+    print(f"🧬 Starting differential evolution optimization...")
+    print(f"   Max iterations: {max_iterations}")
+    
+    from scipy.optimize import differential_evolution
+    
+    param_names = list(param_ranges.keys())
+    bounds = [param_ranges[name] for name in param_names]
+    
+    def objective_function(params):
+        param_dict = dict(zip(param_names, params))
+        fitness = _evaluate_fitness_new(
+            strategy_name, symbols, period, interval, param_dict,
+            consistency_weight, equity_weight
+        )
+        return -fitness  # Minimize negative fitness
+    
+    result = differential_evolution(
+        objective_function, bounds, seed=42, maxiter=max_iterations
+    )
+    
+    best_params = dict(zip(param_names, result.x))
+    
+    return {
+        'method': 'differential_evolution',
+        'best_params': best_params,
+        'best_fitness': -result.fun,
+        'iterations': result.nit,
+        'success': result.success,
+        'strategy_name': strategy_name,
+        'symbols': symbols
+    }
+
+def _run_genetic_optimization_new(
+    strategy_name: str, symbols: List[str], period: str, interval: str,
+    param_ranges: Dict[str, Tuple[float, float]], generations: int,
+    population_size: int, mutation_rate: float, crossover_rate: float,
+    consistency_weight: float, equity_weight: float, output_mode: str, use_notebook_plots: bool
+) -> Dict[str, Any]:
+    """Run genetic algorithm optimization for new strategy-based approach."""
+    print(f"🧬 Starting genetic algorithm optimization...")
+    print(f"   Generations: {generations}")
+    print(f"   Population size: {population_size}")
+    
+    param_names = list(param_ranges.keys())
+    population = _initialize_population(param_ranges, population_size)
+    
+    best_individual = None
+    best_fitness = float('-inf')
+    
+    for generation in range(generations):
+        # Evaluate fitness for all individuals
+        fitness_scores = []
+        for individual in population:
+            param_dict = dict(zip(param_names, individual))
+            fitness = _evaluate_fitness_new(
+                strategy_name, symbols, period, interval, param_dict,
+                consistency_weight, equity_weight
+            )
+            fitness_scores.append(fitness)
+            
+            if fitness > best_fitness:
+                best_fitness = fitness
+                best_individual = individual.copy()
+        
+        # Selection, crossover, and mutation
+        new_population = []
+        for _ in range(population_size):
+            # Tournament selection
+            parent1 = _tournament_selection(population, fitness_scores)
+            parent2 = _tournament_selection(population, fitness_scores)
+            
+            # Crossover
+            if random.random() < crossover_rate:
+                child1, child2 = _crossover(parent1, parent2, param_ranges)
+            else:
+                child1, child2 = parent1.copy(), parent2.copy()
+            
+            # Mutation
+            if random.random() < mutation_rate:
+                child1 = _mutate(child1, param_ranges)
+            if random.random() < mutation_rate:
+                child2 = _mutate(child2, param_ranges)
+            
+            new_population.extend([child1, child2])
+        
+        # Keep best individual
+        if best_individual is not None:
+            new_population[0] = best_individual
+        
+        population = new_population[:population_size]
+        
+        if generation % 10 == 0:
+            print(f"   Generation {generation}: Best fitness = {best_fitness:.4f}")
+    
+    best_params = dict(zip(param_names, best_individual))
+    
+    return {
+        'method': 'genetic',
+        'best_params': best_params,
+        'best_fitness': best_fitness,
+        'generations': generations,
+        'strategy_name': strategy_name,
+        'symbols': symbols
+    }
+
+def _evaluate_fitness_new(
+    strategy_name: str, symbols: List[str], period: str, interval: str,
+    param_dict: Dict[str, float], consistency_weight: float, equity_weight: float
+) -> float:
+    """Evaluate fitness for a parameter set across multiple symbols."""
+    try:
+        strategy_class = _get_strategy_class(strategy_name)
+        if strategy_class is None:
+            return float('-inf')
+        
+        total_equity = 0
+        total_consistency = 0
+        valid_symbols = 0
+        
+        for symbol in symbols:
+            try:
+                # Fetch data
+                ticker = yf.Ticker(symbol)
+                data = ticker.history(period=period, interval=interval)
+                
+                if data.empty:
+                    continue
+                
+                # Create strategy with parameters
+                strategy = strategy_class(data, **param_dict)
+                
+                # Check if strategy is valid
+                if not hasattr(strategy, 'check_signals'):
+                    print(f"   Warning: Strategy {strategy_name} does not have check_signals method")
+                    continue
+                
+                # Run backtest
+                backtester = StrategyBacktester(strategy)
+                final_equity = backtester.run(final_equity_only=True, plot=False)
+                
+                # Calculate consistency (simplified)
+                consistency = 1.0 if final_equity > 100 else 0.5
+                
+                total_equity += final_equity
+                total_consistency += consistency
+                valid_symbols += 1
+                
+            except Exception as e:
+                print(f"   Warning: Error evaluating {symbol}: {e}")
+                continue
+        
+        if valid_symbols == 0:
+            return float('-inf')
+        
+        avg_equity = total_equity / valid_symbols
+        avg_consistency = total_consistency / valid_symbols
+        
+        # Combined fitness
+        fitness = (equity_weight * avg_equity + consistency_weight * avg_consistency * 100)
+        
+        return fitness
+        
+    except Exception as e:
+        print(f"   Error in fitness evaluation: {e}")
+        return float('-inf')
+
+def _display_optimization_results_new(results: Dict[str, Any], strategy_name: str, symbols: List[str], output_mode: str):
+    """Display optimization results for new approach."""
+    if not results:
+        print("❌ No results to display")
+        return
+    
+    print(f"\n🏆 OPTIMIZATION COMPLETE!")
+    print(f"📊 Strategy: {strategy_name}")
+    print(f"📈 Symbols: {', '.join(symbols)}")
+    print(f"🔧 Method: {results.get('method', 'unknown')}")
+    
+    if output_mode in ['params_only', 'equity_only', 'full']:
+        print(f"\n✅ Best Parameters:")
+        for param, value in results['best_params'].items():
+            if isinstance(value, float):
+                print(f"   {param}: {value:.4f}")
+            else:
+                print(f"   {param}: {value}")
+    
+    if output_mode in ['equity_only', 'full']:
+        print(f"\n📈 Best Fitness: {results['best_fitness']:.4f}")
+        
+        if 'iterations' in results:
+            print(f"🔄 Iterations: {results['iterations']}")
+        if 'generations' in results:
+            print(f"🧬 Generations: {results['generations']}")
+        if 'success' in results:
+            print(f"✅ Success: {results['success']}")
+
+def _tournament_selection(population: List[List[float]], fitness_scores: List[float], tournament_size: int = 3) -> List[float]:
+    """Tournament selection for genetic algorithm."""
+    tournament_indices = random.sample(range(len(population)), tournament_size)
+    tournament_fitness = [fitness_scores[i] for i in tournament_indices]
+    winner_idx = tournament_indices[tournament_fitness.index(max(tournament_fitness))]
+    return population[winner_idx].copy()
+
+def _crossover(parent1: List[float], parent2: List[float], param_ranges: Dict[str, Tuple[float, float]]) -> Tuple[List[float], List[float]]:
+    """Single-point crossover for genetic algorithm."""
+    crossover_point = random.randint(1, len(parent1) - 1)
+    child1 = parent1[:crossover_point] + parent2[crossover_point:]
+    child2 = parent2[:crossover_point] + parent1[crossover_point:]
+    return child1, child2
+
+def _mutate(individual: List[float], param_ranges: Dict[str, Tuple[float, float]], mutation_strength: float = 0.1) -> List[float]:
+    """Gaussian mutation for genetic algorithm."""
+    param_names = list(param_ranges.keys())
+    mutated = individual.copy()
+    
+    for i, (param_name, (min_val, max_val)) in enumerate(param_ranges.items()):
+        if random.random() < 0.5:  # 50% chance to mutate each parameter
+            # Gaussian mutation
+            sigma = (max_val - min_val) * mutation_strength
+            mutation = random.gauss(0, sigma)
+            mutated[i] = max(min_val, min(max_val, mutated[i] + mutation))
+    
+    return mutated
 
 # Entry point for CLI execution
 if __name__ == "__main__":

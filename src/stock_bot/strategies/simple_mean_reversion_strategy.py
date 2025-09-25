@@ -20,22 +20,22 @@ class SimpleMeanReversionStrategy(BaseStrategy):
     """
     
     def __init__(self, data: pd.DataFrame, **params):
-        # Strategy parameters with defaults
-        self.bb_period = params.get('bb_period', 20)
-        self.bb_std = params.get('bb_std', 2.0)
-        self.rsi_period = params.get('rsi_period', 14)
-        self.rsi_oversold = params.get('rsi_oversold', 30)
-        self.rsi_overbought = params.get('rsi_overbought', 70)
-        self.sma_period = params.get('sma_period', 20)
-        self.profit_target_pct = params.get('profit_target_pct', 0.015)  # 1.5%
-        self.stop_loss_pct = params.get('stop_loss_pct', 0.02)  # 2%
-        self.max_holding_period = params.get('max_holding_period', 15)
+        # Strategy parameters with defaults - more responsive
+        self.bb_period = 15        # Reduced from 20 to 15
+        self.bb_std = 1.5          # Reduced from 2.0 to 1.5
+        self.rsi_period = 14
+        self.rsi_oversold = 35     # Increased from 30 to 35
+        self.rsi_overbought = 65   # Decreased from 70 to 65
+        self.sma_period = 15       # Reduced from 20 to 15
+        self.profit_target_pct = 0.01  # Reduced from 0.015 to 0.01
+        self.stop_loss_pct = 0.015  # Reduced from 0.02 to 0.015
+        self.max_holding_period = 10  # Reduced from 15 to 10
         
         # Position tracking
         self._entry_price = None
         self._entry_idx = None
         self._last_trade_idx = -1
-        self._trade_cooldown = params.get('trade_cooldown', 2)
+        self._trade_cooldown = 1  # Reduced from 2 to 1
         
         super().__init__(data, **params)
         
