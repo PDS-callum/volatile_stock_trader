@@ -1,0 +1,56 @@
+# Example configuration file for stock bot strategy testing
+# This file can be used to test multiple symbols and strategies with different parameters
+
+# Basic configuration
+symbols:
+  - AAPL
+  - MSFT
+  - GOOGL
+  - TSLA
+  - NVDA
+
+# Data configuration
+data:
+  period: "1y"          # Data period (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
+  interval: "1d"        # Data interval (1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo)
+
+# Strategy configuration
+strategies:
+  # Built-in strategies
+  builtin:
+    - default
+    - trend_following
+    - simple_trend
+    - aggressive
+    - mean_reversion
+    - simple_mean_reversion
+    - macd_crossover
+    - macd_divergence
+    - macd_histogram
+  
+  # Custom strategy files (optional)
+  custom:
+    - path: "examples/simple_ma_strategy.py"
+      class_name: "SimpleMAStrategy"
+
+# Strategy parameters (applied to all strategies)
+strategy_params:
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  rsi_period: 14
+  roc_period: 5
+  ema_mom_period: 20
+
+# Output configuration
+output:
+  mode: "comparison"        # equity_only, equity_curve, comparison
+  use_notebook_plots: false
+  dashboard_port: 8052
+
+# Test configuration
+test:
+  max_symbols: 10          # Maximum number of symbols to test (0 = no limit)
+  parallel: false          # Whether to test symbols in parallel (future feature)
+  save_results: true       # Whether to save results to file
+  results_file: "strategy_comparison_results.json"

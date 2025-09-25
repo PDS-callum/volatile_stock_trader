@@ -16,7 +16,8 @@ dependencies = [
     "yfinance",
     "scipy",
     "ipython",
-    "click"
+    "click",
+    "pyyaml"
 ]
 
 [build-system]

@@ -5,8 +5,7 @@ import logging
 import numpy as np
 from typing import Any, List, Optional, Dict, Tuple
 from scipy.optimize import brute, differential_evolution
-from .strategy import BaseStrategy, DefaultStrategy
-from .strategy import DefaultStrategy
+from .strategies.base_strategy import BaseStrategy
 import yfinance as yf
 
 
@@ -21,11 +20,8 @@ class StrategyBacktester:
         self.data = strategy.data
         self.signals: List[Any] = []
 
-
-
     def run(
         self,
-        plot_every: int = 1,
         final_equity_only: bool = False,
         stop_loss_pct: float = 5,
         plot: bool = True,
@@ -34,7 +30,6 @@ class StrategyBacktester:
         """
         Run the backtest simulation.
         Args:
-            plot_every (int): How often to update plot.
             final_equity_only (bool): If True, only return final equity.
             stop_loss_pct (float): Stop loss percentage.
             plot (bool): Whether to plot results.

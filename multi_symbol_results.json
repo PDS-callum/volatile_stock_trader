@@ -1,0 +1,146 @@
+{
+  "AAPL": {
+    "default": {
+      "return": 3.1892856332044506,
+      "status": "success"
+    },
+    "trend_following": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "mean_reversion": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "macd_crossover": {
+      "return": 0.0,
+      "status": "success"
+    }
+  },
+  "MSFT": {
+    "default": {
+      "return": -3.164800811858263,
+      "status": "success"
+    },
+    "trend_following": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "mean_reversion": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "macd_crossover": {
+      "return": 0.0,
+      "status": "success"
+    }
+  },
+  "GOOGL": {
+    "default": {
+      "return": 22.135622945701883,
+      "status": "success"
+    },
+    "trend_following": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "mean_reversion": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "macd_crossover": {
+      "return": 0.0,
+      "status": "success"
+    }
+  },
+  "TSLA": {
+    "default": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "trend_following": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "mean_reversion": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "macd_crossover": {
+      "return": 0.0,
+      "status": "success"
+    }
+  },
+  "NVDA": {
+    "default": {
+      "return": 14.851968729682516,
+      "status": "success"
+    },
+    "trend_following": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "mean_reversion": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "macd_crossover": {
+      "return": 0.0,
+      "status": "success"
+    }
+  },
+  "AMZN": {
+    "default": {
+      "return": -2.263006843321147,
+      "status": "success"
+    },
+    "trend_following": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "mean_reversion": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "macd_crossover": {
+      "return": 0.0,
+      "status": "success"
+    }
+  },
+  "META": {
+    "default": {
+      "return": -5.160628168931802,
+      "status": "success"
+    },
+    "trend_following": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "mean_reversion": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "macd_crossover": {
+      "return": 0.0,
+      "status": "success"
+    }
+  },
+  "NFLX": {
+    "default": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "trend_following": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "mean_reversion": {
+      "return": 0.0,
+      "status": "success"
+    },
+    "macd_crossover": {
+      "return": 0.0,
+      "status": "success"
+    }
+  }
+}

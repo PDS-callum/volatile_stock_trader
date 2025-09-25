@@ -1,15 +1,14 @@
 import pandas as pd
-import threading
 import time
 import logging
 from typing import List, Optional
-from .strategy import BaseStrategy, DefaultStrategy
+from .strategies.base_strategy import BaseStrategy
 
 class StrategyTester:
     """
     Collects live data, applies a strategy, and launches a dashboard for real-time trading simulation.
     """
-    def __init__(self, symbol: str, strategy_cls=DefaultStrategy, period: str = "60d", interval: str = "15m", min_points: int = 40, strategy_params=None):
+    def __init__(self, symbol: str, strategy_cls, period: str = "60d", interval: str = "15m", min_points: int = 40, strategy_params=None):
         self.symbol = symbol
         self.interval = interval
         self.period = period

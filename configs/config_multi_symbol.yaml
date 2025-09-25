@@ -1,0 +1,32 @@
+# Multi-symbol configuration for comprehensive testing
+symbols:
+  - AAPL
+  - MSFT
+  - GOOGL
+  - TSLA
+  - NVDA
+  - AMZN
+  - META
+  - NFLX
+
+data:
+  period: "6mo"
+  interval: "1d"
+
+strategies:
+  builtin:
+    - default
+    - trend_following
+    - mean_reversion
+    - macd_crossover
+
+strategy_params:
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  rsi_period: 14
+
+output:
+  mode: "comparison"
+  save_results: true
+  results_file: "multi_symbol_results.json"

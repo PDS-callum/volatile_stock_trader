@@ -1,0 +1,42 @@
+# Configuration to test all built-in strategies
+symbols:
+  - AAPL
+  - MSFT
+  - GOOGL
+  - TSLA
+  - NVDA
+
+data:
+  period: "6mo"
+  interval: "1d"
+
+strategies:
+  builtin:
+    - default
+    - trend_following
+    - simple_trend
+    - aggressive
+    - mean_reversion
+    - simple_mean_reversion
+    - macd_crossover
+    - macd_divergence
+    - macd_histogram
+
+strategy_params:
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  rsi_period: 14
+  roc_period: 5
+  ema_mom_period: 20
+
+output:
+  mode: "comparison"
+  use_notebook_plots: false
+  dashboard_port: 8052
+  save_results: true
+  results_file: "all_strategies_results.json"
+
+test:
+  max_symbols: 0  # No limit
+  save_results: true
